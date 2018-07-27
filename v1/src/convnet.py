@@ -149,8 +149,9 @@ class TinyConvNet2(nn.Module):
                 
     def forward(self, x):
         x = self.features(x)
+        # print(x.size())
+        # assert(0)
         x = x.view(x.size(0), -1)
-        #print(x.size())
         x = self.classifier(x)
         return x    
     
