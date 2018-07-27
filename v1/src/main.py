@@ -17,7 +17,7 @@ from feats_io import read_feats
 
 
 parser = argparse.ArgumentParser(description='Human Activities Detection')
-parser.add_argument('--data', metavar='DIR', default='../ark',
+parser.add_argument('--data', metavar='DIR', default='ark/',
                     help='path to dataset')
 parser.add_argument('-j', '--workers', default=16, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')

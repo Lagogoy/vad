@@ -18,6 +18,7 @@ def cmvn(spectrogram):
     stdev = np.std(spectrogram, axis=1)
     return (spectrogram - mu.reshape((-1, 1))) / stdev.reshape((-1, 1))
 
+
 def log_mel_fbanks_energy(file_path):
     y, sr = librosa.load(file_path, sr=8000)
     y = signal.lfilter([1, -0.97], 1, y)
@@ -30,6 +31,7 @@ def log_mel_fbanks_energy(file_path):
                            np.array([spec_delta2])], axis=0)
     return spec, sr
 
+
 def extract_label(num_frames, frame_lens, file_path, name):
     '''
     extract the tag of each frame from .TextGrid file
@@ -38,7 +40,6 @@ def extract_label(num_frames, frame_lens, file_path, name):
 
     CHANGED by lawlict on April 11
     '''
-
     frames_label = np.zeros(num_frames, dtype=int)
     pfile = open(file_path, 'r')
     for line in pfile.readlines():
@@ -50,10 +51,11 @@ def extract_label(num_frames, frame_lens, file_path, name):
         frames_label[start:end] = 1
     return frames_label
 
+
 if __name__ == '__main__':
-    wav_dir = '/home/linqingjian/VAD/wav'
-    label_dir = '/home/linqingjian/VAD/seg'
-    feats_dir = '/home/linqingjian/VAD/ark'
+    wav_dir = '../wav'
+    label_path = '../segment'
+    feats_dir = 'ark'
     
     for file_name in os.listdir(wav_dir):
         name, ext = os.path.splitext(file_name)
@@ -61,7 +63,6 @@ if __name__ == '__main__':
         feature, sr = log_mel_fbanks_energy(file_path)
 
         num_frames = feature.shape[-1]
-        label_path = os.path.join(label_dir, 'segment')
         labels = extract_label(num_frames, frame_shift, label_path, name)
         
         # write features and labels in *.idx & *.ark file

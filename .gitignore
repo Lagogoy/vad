@@ -1,2 +1,5 @@
 *.wav
 segment
+ark/
+*.json
+__pycache__/
