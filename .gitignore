@@ -1,5 +1,7 @@
 *.wav
-segment
-ark/
 *.json
+*.npy
+segment
+
+ark/
 __pycache__/

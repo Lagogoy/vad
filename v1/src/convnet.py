@@ -108,12 +108,12 @@ class TinyConvNet2(nn.Module):
         self.features = nn.Sequential(
             nn.Conv2d(3, 16, kernel_size=(17, 1), stride=1),
             nn.PReLU(16),
-            # nn.BatchNorm2d(16),
+            nn.BatchNorm2d(16),
             nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
             
             nn.Conv2d(16, 16, kernel_size=(5, 7), bias=False),
             nn.PReLU(16),
-            # nn.BatchNorm2d(16),
+            nn.BatchNorm2d(16),
             nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
         )
         # self.features = nn.Sequential(
