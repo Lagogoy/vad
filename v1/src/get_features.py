@@ -56,7 +56,7 @@ if __name__ == '__main__':
     wav_dir = '../wav'
     label_path = '../segment'
     feats_dir = 'ark'
-    
+    os.system("mkdir -p " + feats_dir)
     for file_name in os.listdir(wav_dir):
         name, ext = os.path.splitext(file_name)
         file_path = os.path.join(wav_dir, file_name)
