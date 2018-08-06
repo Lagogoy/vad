@@ -1,7 +1,10 @@
 *.wav
 *.json
 *.npy
+*.ipynb
+
 segment
 
 ark/
 __pycache__/
+.ipynb_checkpoints/
