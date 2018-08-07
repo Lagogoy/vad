@@ -5,9 +5,8 @@ import torch.nn as nn
 import math
 
 class lstmNet(nn.Module):
-    def __init__(self, input_dim, batch_size = 1):
+    def __init__(self, input_dim):
         super(lstmNet, self).__init__()
-        self.batch_size = batch_size
         self.hidden_dim1 = 30
         self.hidden_dim2 = 20       
         self.linear_dim1 = 40
@@ -38,27 +37,28 @@ class lstmNet(nn.Module):
                 m.weight.data.normal_(0, 0.01)
                 m.bias.data.zero_()
 
+    def init_hidden(self, batch):
+        self.hidden1 = (torch.zeros(2, batch, self.hidden_dim1).cuda(),
+                        torch.zeros(2, batch, self.hidden_dim1).cuda())
+        self.hidden2 = (torch.zeros(2, batch, self.hidden_dim2).cuda(),
+                        torch.zeros(2, batch, self.hidden_dim2).cuda())
 
     def forward(self, sentence):
-        hidden1 = (torch.zeros(2, self.batch_size, self.hidden_dim1).cuda(),
-                   torch.zeros(2, self.batch_size, self.hidden_dim1).cuda())
-        hidden2 = (torch.zeros(2, self.batch_size, self.hidden_dim2).cuda(),
-                   torch.zeros(2, self.batch_size, self.hidden_dim2).cuda())
         # print("x: ", type(sentence), sentence.shape)
-        out, hidden1 = self.lstm1(sentence, hidden1)
-        out, hidden2 = self.lstm2(out, hidden2)
+        out, self.hidden1 = self.lstm1(sentence, self.hidden1)
+        out, self.hidden2 = self.lstm2(out, self.hidden2)
         out = self.classifier(out)
         return out
 
 # Simple test
 if __name__ == "__main__":
-    x = torch.tensor(torch.randn(3,1,5)).float().cuda()
+    x = torch.tensor(torch.randn(3,64,5)).float().cuda()
     batch_size = x.shape[1]
     input_dim = x.shape[2]
 
-    model = lstmNet(input_dim, batch_size).cuda()
+    model = lstmNet(input_dim).cuda()
     print(model)
-
+    model.init_hidden(batch=batch_size)
     out = model(x)
     print("out:", out)
     print(type(out), out.shape)

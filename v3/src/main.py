@@ -11,13 +11,21 @@ import model
 from tqdm import tqdm
 
 
+
 parser = argparse.ArgumentParser(description="Speech Changepoint Detection")
 parser.add_argument('--epochs', default=100, type=int,  
                     help='manual epoch number (default: 100)')
+parser.add_argument('--lr', default=0.1, type=float,
+                    help='initial learning rate')
+parser.add_argument('--seg-len', default=3, type=int, 
+                    help='segment length(s) as LSTM inputs')
+parser.add_argument('--batch', default=64, type=int, 
+                    help='mini batch')
 parser.add_argument('--eval', action='store_true', 
                     help='whether evaluate model on validation set')
 parser.add_argument('--resume', action='store_true', 
                     help='whether recovery from saved model')
+
 
 
 class AverageMeter(object):
@@ -36,19 +44,23 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
+
 # DataLoader类
 class SCDDataset(Dataset):
-    def __init__(self, feat_dict, label_dict, data_set):
-        self.feat_dict = feat_dict
-        self.label_dict = label_dict
-        self.data_set = data_set
+    def __init__(self, feats, labels, seg_len):
+        self.feats = feats
+        self.labels = labels
+        self.frame_num = seg_len * 100
+        self.frame_shift = self.frame_num//2
     
     def __getitem__(self, index):
-        wav = self.data_set[index]
-        return self.feat_dict[wav], self.label_dict[wav]
+        feat  = self.feats[self.frame_shift*index : self.frame_shift*index + self.frame_num]
+        label = self.labels[self.frame_shift*index : self.frame_shift*index + self.frame_num]
+        return feat, label
     
     def __len__(self):
-        return len(self.data_set)
+        return self.feats.shape[0]//(self.frame_shift) - 1
+
 
 
 # 读取数据，生成train_loader和val_loader
@@ -60,25 +72,34 @@ def LoadData(data_set, percent):
         label = np.load('label/' + file)
         feat_dict[file] = feat
         label_dict[file] = label
+    
     # 训练集比例：data_set * percent
     # 测试集比例：data_set * (1 - percent)
-    train_set = data_set[ :int(len(data_set)*percent)]
-    val_set   = data_set[int(len(data_set)*percent): ]
-    train_dataset = SCDDataset(feat_dict, label_dict, train_set)
+    feats = np.vstack(feat_dict.values())
+    labels = np.vstack(label_dict.values())
+    train_feats  = feats[ : int(feats.shape[0]*percent)]
+    train_labels = labels[ : int(feats.shape[0]*percent)]
+    val_feats  = feats[int(feats.shape[0]*percent) : ]
+    val_labels = labels[int(feats.shape[0]*percent) : ]
+
+    seg_len = args.seg_len      # seg_len： 单位s，每次输入LSTM网络的长度
+    train_dataset = SCDDataset(train_feats, train_labels, seg_len)
     train_loader  = torch.utils.data.DataLoader(train_dataset,
-                    batch_size=1, shuffle=True,
+                    batch_size=args.batch, shuffle=True,
                     num_workers=12, pin_memory=True)
-    val_dataset = SCDDataset(feat_dict, label_dict, val_set)
+    val_dataset = SCDDataset(val_feats, val_labels, seg_len)
     val_loader  = torch.utils.data.DataLoader(val_dataset, 
-                    batch_size=1, shuffle=False,
+                    batch_size=args.batch, shuffle=False,
                     num_workers=12, pin_memory=True)
-    return train_loader, val_loader    
+    return train_loader, val_loader
+
 
 
 def adjust_lr(optimizer, epoch):
-    lr = 0.01 * (0.5**(epoch//10))
+    lr = args.lr * (0.1**(epoch//20))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
+
 
 
 def train(model, train_loader, criterion, optimizer, epoch):
@@ -93,6 +114,7 @@ def train(model, train_loader, criterion, optimizer, epoch):
     for feats, labels in tqdm(train_loader):
         feats = feats.transpose(0, 1).float().cuda()
         labels = labels.transpose(0, 1).float().cuda()
+        model.init_hidden(batch = feats.shape[1])
         output = model(feats)
         loss = criterion(output, labels)
         loss_static.update(loss.item(), len(labels))
@@ -111,6 +133,7 @@ def train(model, train_loader, criterion, optimizer, epoch):
         i += 1
 
 
+
 def val(model, val_loader, criterion, epoch):
     i = 1
     loss_static = AverageMeter()
@@ -123,6 +146,7 @@ def val(model, val_loader, criterion, epoch):
     for feats, labels in tqdm(val_loader):
         feats = feats.transpose(0, 1).float().cuda()
         labels = labels.transpose(0, 1).float().cuda()
+        model.init_hidden(batch = feats.shape[1])
         output = model(feats)
         loss = criterion(output, labels)
         loss_static.update(loss.item(), len(labels))
@@ -138,9 +162,10 @@ def val(model, val_loader, criterion, epoch):
         i += 1
 
 
+
 def accuracy(output, target, threshold=0.5):
-    output = output.squeeze()
-    target = target.squeeze()
+    output = output.reshape(1, -1).squeeze()
+    target = target.reshape(1, -1).squeeze()
     length = len(target)
 
     pred = (output > threshold).float()
@@ -155,10 +180,12 @@ def accuracy(output, target, threshold=0.5):
     return acc, fa, miss
     
 
+
 if __name__ == '__main__': 
+    global args
     args = parser.parse_args()
     # 模型初始化，输入：12维MFCC + delta + delta2 = 36维，batch_size = 1
-    model = model.lstmNet(input_dim = 36, batch_size = 1).cuda()
+    model = model.lstmNet(input_dim = 36).cuda()
     print(model)
 
     # 读取数据
@@ -171,7 +198,7 @@ if __name__ == '__main__':
     criterion = nn.BCELoss().cuda()
     # 优化器：随机梯度下降法
     optimizer = torch.optim.SGD(
-        model.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-4
+        model.parameters(), lr=args.lr, momentum=0.9, weight_decay=1e-4
     )
     # 提升GPU运行速度
     cudnn.benchmark = True
