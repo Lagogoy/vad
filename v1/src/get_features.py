@@ -20,56 +20,46 @@ def cmvn(spectrogram):
 
 
 def log_mel_fbanks_energy(file_path):
-    y, sr = librosa.load(file_path, sr=8000)
+    y, sr = librosa.core.load(file_path, sr=None, mono=True)
     y = signal.lfilter([1, -0.97], 1, y)
     spec = librosa.stft(y, n_fft=int(frame_len*sr), hop_length=int(frame_shift*sr), center=False)
     spec = librosa.feature.melspectrogram(S=np.abs(spec)**2+1e-10, n_mels=32)
     spec = cmvn(np.log(spec + 10e-10))
     spec_delta = cmvn(librosa.feature.delta(spec))
     spec_delta2 = cmvn(librosa.feature.delta(spec, order=2))
-    spec = np.concatenate([np.array([spec]), np.array([spec_delta]), 
-                           np.array([spec_delta2])], axis=0)
+    spec = np.array([spec, spec_delta, spec_delta2])
     return spec, sr
 
-
-def extract_label(num_frames, frame_lens, file_path, name):
-    '''
-    extract the tag of each frame from .TextGrid file
-    input: num_frames -- total frames of corresponding feature
-           frame_lens -- number of seconds between input feature frames
-
-    CHANGED by lawlict on April 11
-    '''
+# FS_P01_dev_001  0   6.25    7.63    S   manual  X   X   X   X   X   X
+def extract_label(num_frames, frame_shift, seg_path):
     frames_label = np.zeros(num_frames, dtype=int)
-    pfile = open(file_path, 'r')
-    for line in pfile.readlines():
-        utt, reco, start, end = line.split()
-        if(name != reco):
-            continue
-        start = int(float(start)/frame_lens)
-        end = min(int(float(end)/frame_lens), num_frames)
-        frames_label[start:end] = 1
+    with open(seg_path) as rfile:
+        for line in rfile.readlines():
+            items = line.strip().split()
+            start = int(float(items[2])/frame_shift)
+            end = min(int(float(items[3])/frame_shift, num_frames))
+            frames_label[start:end] = 1
     return frames_label
 
 
 if __name__ == '__main__':
-    wav_dir = '../wav'
-    label_path = '../segment'
-    feats_dir = 'ark'
-    os.system("mkdir -p " + feats_dir)
+    wav_dir = '/NASdata/AudioData/english/fearless_steps_challenge/Data/Audio/Tracks/Dev/'
+    seg_dir = '/NASdata/AudioData/english/fearless_steps_challenge/Data/Transcripts/SAD/Dev/'
+    feats = []
+    labels = []
     for file_name in os.listdir(wav_dir):
         name, ext = os.path.splitext(file_name)
-        file_path = os.path.join(wav_dir, file_name)
-        feature, sr = log_mel_fbanks_energy(file_path)
+        feat_path = os.path.join(wav_dir, file_name)
+        feature, sr = log_mel_fbanks_energy(feat_path)
+        feats.append(feature)
 
         num_frames = feature.shape[-1]
-        labels = extract_label(num_frames, frame_shift, label_path, name)
-        
-        # write features and labels in *.idx & *.ark file
-        feats_file = write_feats(os.path.join(feats_dir, name))
-        for i in range(0, num_frames):
-            feats_file.write(str(i), feature[:, :, i], labels[i])
-        del feats_file
-            
-        print(time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time())),
-              name + " write success")
+        seg_path = seg_dir + name + '.txt'
+        label = extract_label(num_frames, frame_shift, seg_path)
+        labels.append(label)
+
+        print(time.ctime(), name + " write success")
+    feats = np.concatenate(feats, axis=1)
+    labels = np.concatenate(labels, axis=0)
+    np.save('feats.npy', feats)
+    np.save('labels.npy', labels)
