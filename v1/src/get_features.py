@@ -38,7 +38,9 @@ def extract_label(num_frames, frame_shift, seg_path):
             items = line.strip().split()
             start = int(float(items[2])/frame_shift)
             end = min(int(float(items[3])/frame_shift), num_frames)
-            frames_label[start:end] = 1
+            mark = items[4]
+            if(mark == 'S'):
+                frames_label[start:end] = 1
     return frames_label
 
 
@@ -58,8 +60,8 @@ if __name__ == '__main__':
         label = extract_label(num_frames, frame_shift, seg_path)
         labels.append(label)
 
-        print(time.ctime(), name + " write success")
-    feats = np.concatenate(feats, axis=1)
+        print(time.ctime(), name + " write success", feature.shape, label.shape)
+    feats = np.concatenate(feats, axis=2)
     labels = np.concatenate(labels, axis=0)
     np.save('mfcc.npy', feats)
     np.save('labels.npy', labels)
