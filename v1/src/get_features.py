@@ -37,7 +37,7 @@ def extract_label(num_frames, frame_shift, seg_path):
         for line in rfile.readlines():
             items = line.strip().split()
             start = int(float(items[2])/frame_shift)
-            end = min(int(float(items[3])/frame_shift, num_frames))
+            end = min(int(float(items[3])/frame_shift), num_frames)
             frames_label[start:end] = 1
     return frames_label
 
@@ -61,5 +61,5 @@ if __name__ == '__main__':
         print(time.ctime(), name + " write success")
     feats = np.concatenate(feats, axis=1)
     labels = np.concatenate(labels, axis=0)
-    np.save('feats.npy', feats)
+    np.save('mfcc.npy', feats)
     np.save('labels.npy', labels)
