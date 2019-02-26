@@ -10,11 +10,14 @@ def conv3x3(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
 
+# added by lawlict
+# input_dim: [layer_num, feat_dim, frame_num]
+# Actually ConvNet recieve 4-dim feats, where the first dim is batch_size.
 class ConvNet(nn.Module):
-    def __init__(self, num_classes=2):
+    def __init__(self, input_dim):
         super(ConvNet, self).__init__()
         self.features = nn.Sequential(
-            conv3x3(3, 64),
+            conv3x3(input_dim[0], 64),
             nn.ReLU(inplace=True),
             conv3x3(64, 64),
             nn.ReLU(inplace=True),
@@ -26,14 +29,15 @@ class ConvNet(nn.Module):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
+        self.fc0_dim = 128 * input_dim[1]//4 * input_dim[2]//4
+        self.fc1_dim = int(math.sqrt(self.fc0_dim))
+        
         self.classifier = nn.Sequential(
-            nn.Linear(128 * 8 * 7, 4096),
+            nn.Linear(self.fc0_dim, self.fc1_dim),
             nn.ReLU(inplace=True),
             nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(inplace=True),
-            nn.Dropout(),
-            nn.Linear(4096, num_classes)
+            nn.Linear(self.fc1_dim, 1), 
+            nn.Sigmoid()
         )
         self._initialize_weights()
 
