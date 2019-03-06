@@ -17,7 +17,13 @@ class ConvNet(nn.Module):
     def __init__(self, input_dim):
         super(ConvNet, self).__init__()
         self.features = nn.Sequential(
-            conv3x3(input_dim[0], 64),
+            conv3x3(input_dim[0], 32),
+            nn.ReLU(inplace=True),
+            conv3x3(32, 32),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+
+            conv3x3(32, 64),
             nn.ReLU(inplace=True),
             conv3x3(64, 64),
             nn.ReLU(inplace=True),
@@ -29,7 +35,7 @@ class ConvNet(nn.Module):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
-        self.fc0_dim = 128 * input_dim[1]//4 * input_dim[2]//4
+        self.fc0_dim = 128 * (input_dim[1]//8) * (input_dim[2]//8)
         self.fc1_dim = int(math.sqrt(self.fc0_dim))
         
         self.classifier = nn.Sequential(

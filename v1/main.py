@@ -17,19 +17,17 @@ import sklearn.metrics as metrics
 
 
 parser = argparse.ArgumentParser(description='Human Activities Detection')
-parser.add_argument('--feats', default='mfcc.npy', type=str, 
+parser.add_argument('--feats', default='data/mfcc.npy', type=str, 
                     help='the path of feats file')
-parser.add_argument('--labels', default='labels.npy', type=str,
+parser.add_argument('--labels', default='data/labels.npy', type=str,
                     help='the path of labels file')
-parser.add_argument('-j', '--workers', default=16, type=int, metavar='N',
-                    help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=100, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=10240, type=int,
+parser.add_argument('-b', '--batch-size', default=256, type=int,
                     metavar='N', help='mini-batch size')
-parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
+parser.add_argument('--lr', '--learning-rate', default=1e-4, type=float,
                     metavar='LR', help='initial learning rate')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
@@ -47,7 +45,6 @@ parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
 #                     help='directory to store tensorboard files')
 args = parser.parse_args()
 
-best_prec = 0
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def main():
@@ -56,20 +53,18 @@ def main():
     #         raise RuntimeError('Please provide a name for tensorboard to store')
     #     configure("runs/{}".format(args.name))
     #     print('tensorboard is used, log to runs/{}'.format(args.name))
-
-    ext_frame_num = 25
+    best_prec = 0
+    ext_frame_num = 24
     train_percent = 0.9
  
     # Data loading
     feats = np.load(args.feats)
     labels = np.load(args.labels)
     train_frame_num = int(train_percent * len(labels))
-    train_feats = feats[:,:,train_frame_num]
+    train_feats = feats[:,:,:train_frame_num]
     train_labels = labels[:train_frame_num]
     test_feats = feats[:,:,train_frame_num:]
     test_labels = labels[train_frame_num:]
-
-    
     train_dataset = HADDataset(train_feats, train_labels, ext_frame_num)
     train_loader = torch.utils.data.DataLoader(train_dataset,
         batch_size=args.batch_size, shuffle=True,
@@ -87,10 +82,11 @@ def main():
     model = torch.nn.DataParallel(model).to(device)
 
     # define loss function (criterion) and optimizer
-    criterion = nn.CrossEntropyLoss().to(device)
+    criterion = nn.BCELoss()
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
+    cudnn.benchmark = True
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -105,8 +101,6 @@ def main():
                   .format(args.resume, checkpoint['epoch']))
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
-
-    cudnn.benchmark = True
 
     if args.evaluate:
         validate(eval_loader, model, criterion)
@@ -131,7 +125,7 @@ def main():
             'optimizer' : optimizer.state_dict(),
         }, is_best)
 
-        
+
 class HADDataset(Dataset):
     def __init__(self, feats, labels, ext_frame_num):
         self.feats = feats
@@ -139,8 +133,8 @@ class HADDataset(Dataset):
         self.ext_frame_num = ext_frame_num
 
     def __getitem__(self, index):
-        return_feats = self.feats[:, :, index-self.ext_frame_num:index+self.ext_frame_num]
-        return_labels = self.labels[index-self.ext_frame_num:index+self.ext_frame_num]
+        return_feats = self.feats[:, :, index:index+2*self.ext_frame_num+1]
+        return_labels = self.labels[index+self.ext_frame_num].reshape(1)
         # feats = np.transpose(np.array(feats, dtype=np.float32), (1, 2, 0))
         return return_feats, return_labels
 
@@ -149,20 +143,12 @@ class HADDataset(Dataset):
 
 
 def train(train_loader, model, criterion, optimizer, epoch):
-    batch_time = AverageMeter()
-    data_time = AverageMeter()
     losses = AverageMeter()
     acc = AverageMeter()
     cm = np.zeros([2, 2], dtype=int)
-    
-    # switch to train mode
-    model.train()
 
-    end = time.time()
-    for i, (feats, key) in enumerate(train_loader):
-        # measure data loading time
-        data_time.update(time.time() - end)
-        
+    model.train()
+    for i, (feats, key) in enumerate(train_loader): 
         input_var = feats.float().to(device)
         target_var = key.float().to(device)
 
@@ -171,9 +157,9 @@ def train(train_loader, model, criterion, optimizer, epoch):
         loss = criterion(output, target_var)
 
         # measure accuracy and record loss
-        losses.update(loss.data[0], feats.size(0))
-        prec1, cm_ = accuracy(output.detach().cpu().numpy(), key)
-        acc.update(prec1[0], feats.size(0))
+        losses.update(loss, feats.size(0))
+        prec1, cm_ = accuracy(output, target_var)
+        acc.update(prec1, feats.size(0))
         
         cm = cm + cm_
         uar_ = UAR(cm_)
@@ -184,70 +170,64 @@ def train(train_loader, model, criterion, optimizer, epoch):
         loss.backward()
         optimizer.step()
 
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
-
         if i % args.print_freq == 0:
-            print('Epoch: [{0}][{1}/{2}]\t'
-                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'Prec@1 {acc.val:.3f} ({acc.avg:.3f})\t'
-                  'UAR {uar_:.3f} ({uar:.3f})'.format(
-                   epoch, i, len(train_loader), batch_time=batch_time,
-                   data_time=data_time, loss=losses, acc=acc, uar_=uar_, uar=uar))
-        
+            print('{} Epoch: [{}][{}/{}]\t'
+                'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                'Prec@1 {acc.val:.3f} ({acc.avg:.3f})\t'
+                'UAR {uar_:.3f} ({uar:.3f})'.format(
+                time.ctime(), epoch, i, len(train_loader), 
+                loss=losses, acc=acc, uar_=uar_, uar=uar))
+
     # if args.tensorboard:
     #     log_value('train_loss', losses.avg, epoch)
     #     log_value('train_acc', acc.avg, epoch)
     #     log_value('train_uar', uar, epoch)
+    return acc.avg
 
 
-def validate(val_loader, model, criterion, epoch=0):
-    batch_time = AverageMeter()
+def validate(val_dataloader, model, criterion, epoch=0):
     losses = AverageMeter()
     acc = AverageMeter()
     cm = np.zeros([2, 2], dtype=int)
-    
-    # switch to evaluate mode
+
     model.eval()
+    with torch.no_grad():
+        for i, (feats, key) in enumerate(val_dataloader): 
+            input_var = feats.float().to(device)
+            target_var = key.float().to(device)
 
-    end = time.time()
-    for i, (feats, key) in enumerate(val_loader):
-        input_var = feats.float().to(device)
-        target_var = key.float().to(device)
+            # compute output
+            output = model(input_var)
+            loss = criterion(output, target_var)
 
-        # compute output
-        output = model(input_var)
-        loss = criterion(output, target_var)
+            # measure accuracy and record loss
+            losses.update(loss, feats.size(0))
+            prec1, cm_ = accuracy(output, target_var)
+            acc.update(prec1, feats.size(0))
+            
+            cm = cm + cm_
+            uar_ = UAR(cm_)
+            uar = UAR(cm)
 
-        # measure accuracy and record loss
-        losses.update(loss.data[0], feats.size(0))
-        prec1, cm_ = accuracy(output.detach().cpu().numpy(), key)
-        acc.update(prec1[0], feats.size(0))
-        
-        cm = cm + cm_
-        # uar_ = UAR(cm_)
-        uar = UAR(cm)
+            if i % args.print_freq == 0:
+                print('{} Epoch: [{}][{}/{}]\t'
+                    'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                    'Prec@1 {acc.val:.3f} ({acc.avg:.3f})\t'
+                    'UAR {uar_:.3f} ({uar:.3f})'.format(
+                    time.ctime(), epoch, i, len(val_dataloader), 
+                    loss=losses, acc=acc, uar_=uar_, uar=uar))
 
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
-
-    print(' * Prec@1 {acc.avg:.3f}\tUAR {uar:.3f}'.format(acc=acc, uar=uar))
-    
     # if args.tensorboard:
-    #     log_value('val_loss', losses.avg, epoch)
-    #     log_value('val_acc', acc.avg, epoch)
-    #     log_value('val_uar', uar, epoch)
-    
+    #     log_value('train_loss', losses.avg, epoch)
+    #     log_value('train_acc', acc.avg, epoch)
+    #     log_value('train_uar', uar, epoch)
     return acc.avg
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+
+def save_checkpoint(state, is_best, filename='model/checkpoint.mdl'):
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, 'model_best.pth.tar')
+        shutil.copyfile(filename, 'model/model_best.mdl')
 
 
 class AverageMeter(object):
@@ -278,8 +258,8 @@ def adjust_learning_rate(optimizer, epoch):
 
 
 def accuracy(output, target):
-    output = output.squeeze()
-    target = target.squeeze()
+    output = output.detach().cpu().numpy().squeeze()
+    target = target.detach().cpu().numpy().squeeze()
 
     pred = (output >= 0.5).astype(int)
     target = target.astype(int)
@@ -290,7 +270,7 @@ def accuracy(output, target):
 
 
 def UAR(cm):
-    uar = (cm[0, 0] / (float(sum(cm[0,:])) + 1e-10) + cm[1, 1] / (float(sum(cm[1,:]))) + 1e-10) / 2.0 * 100.0
+    uar = ( cm[0,0]/(float(sum(cm[0,:])) + 1e-10) + cm[1,1]/(float(sum(cm[1,:])) + 1e-10) ) / 2.0
     return uar
 
 

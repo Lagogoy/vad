@@ -6,7 +6,6 @@ import time
 import librosa
 import numpy as np
 from scipy import signal
-from feats_io import write_feats
 
 frame_len = 0.025
 frame_shift = 0.01
@@ -61,7 +60,8 @@ if __name__ == '__main__':
         labels.append(label)
 
         print(time.ctime(), name + " write success", feature.shape, label.shape)
-    feats = np.concatenate(feats, axis=2)
-    labels = np.concatenate(labels, axis=0)
-    np.save('mfcc.npy', feats)
-    np.save('labels.npy', labels)
+        feats = np.concatenate(feats, axis=2)
+        labels = np.concatenate(labels, axis=0)
+        np.save('data/mfcc.npy', feats)
+        np.save('data/labels.npy', labels)
+        exit(0)
